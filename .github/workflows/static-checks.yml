@@ -1,0 +1,47 @@
+name: Static site checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - name: Validate HTML structure
+        run: |
+          python - <<'PY'
+          from html.parser import HTMLParser
+          from pathlib import Path
+
+          html = Path('index.html').read_text(encoding='utf-8')
+          class Parser(HTMLParser):
+              def error(self, message):
+                  raise ValueError(message)
+          Parser(convert_charrefs=True).feed(html)
+          required = ['<!doctype html', '<html', '<meta name="viewport"', '<title>', 'style.css']
+          missing = [marker for marker in required if marker.lower() not in html.lower()]
+          if missing:
+              raise SystemExit('Missing required markers: ' + ', '.join(missing))
+          print('Static HTML structure looks valid.')
+          PY
+      - name: Check JavaScript syntax when present
+        run: |
+          set -euo pipefail
+          found=0
+          while IFS= read -r -d '' file; do
+            found=1
+            node --check "$file"
+          done < <(find . -type f -name '*.js' -not -path './.git/*' -print0)
+          if [ "$found" -eq 0 ]; then echo 'No JavaScript files found.'; fi
+      - name: Check whitespace
+        run: git diff --check
